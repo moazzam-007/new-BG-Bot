@@ -1,26 +1,22 @@
-import uuid
-import threading
-import queue
-import time
+import os
+from rembg import remove
+from PIL import Image
 
-image_queue = queue.Queue()
+async def process_image_with_template(input_path, template_id):
+    # Remove background
+    with open(input_path, "rb") as f:
+        output_data = remove(f.read())
 
-def queue_image_job(image_url, user_id):
-    job_id = str(uuid.uuid4())
-    image_queue.put({"image_url": image_url, "user_id": user_id, "job_id": job_id})
-    return job_id
+    no_bg_path = input_path.replace(".jpg", "_nobg.png")
+    with open(no_bg_path, "wb") as f:
+        f.write(output_data)
 
-def start_background_worker():
-    from bot.userbot import send_to_rembg_bot  # avoid circular import
+    # Overlay template
+    template_path = os.path.join("overlays", f"template{template_id}.png")
+    background = Image.open(template_path).convert("RGBA")
+    subject = Image.open(no_bg_path).convert("RGBA")
+    background.paste(subject, (0, 0), subject)
 
-    def worker():
-        while True:
-            job = image_queue.get()
-            if job:
-                try:
-                    send_to_rembg_bot(job["image_url"], job["user_id"])
-                except Exception as e:
-                    print("❌ Error in worker:", e)
-            time.sleep(1)
-
-    threading.Thread(target=worker, daemon=True).start()
+    final_path = input_path.replace(".jpg", "_final.png")
+    background.save(final_path)
+    return final_path
