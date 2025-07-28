@@ -4,3 +4,4 @@ tgcrypto
 pillow
 requests
 python-dotenv
+gunicorn
