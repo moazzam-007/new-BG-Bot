@@ -3,12 +3,24 @@ import asyncio
 import os
 import requests
 from app.utils import get_unique_filename, TEMP_DIR
-from app import app, bot # Flask app aur Pyrogram bot ko import karein
-import threading
 import logging
+from dotenv import load_dotenv # Import for local testing, Render will load them
+
+# Load environment variables (for local testing, Render will handle it)
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+SESSION_DIR = "session"
+
+# Make sure the session directory exists
+if not os.path.exists(SESSION_DIR):
+    os.makedirs(SESSION_DIR)
+
+bot = Client("my_session", api_id=API_ID, api_hash=API_HASH, workdir=SESSION_DIR, no_updates=True)
 
 TARGET_BOT = "BgRemover_ai_bot"
 
@@ -32,7 +44,8 @@ async def handle_user_image(client, message):
         
         # Wait for response (within 60 sec)
         logging.info(f"Waiting for response from {TARGET_BOT}...")
-        response = await client.listen(TARGET_BOT, filters.photo, timeout=60) # Only listen for photos
+        # Pyrogram's listen needs filters if you want specific message types
+        response = await client.listen(TARGET_BOT, filters.photo, timeout=60) 
 
         if response and response.photo:
             removed_bg_filename = get_unique_filename("_removed_bg.png")
@@ -43,12 +56,14 @@ async def handle_user_image(client, message):
             await message.reply_text("Background remove ho gaya hai, ab template apply kar raha hoon...")
 
             # Call Flask API to process with template
-            # Ab hum internal endpoint ko call karenge
-            # Ye request localhost par jayegi, kyunki Flask aur bot ek hi container mein hain.
             template_id = "1"  # TODO: User se dynamically lena
             
             flask_api_url = "http://localhost:5000/process_internal" # Flask internal URL
             
+            # Using `requests` needs to be in a separate thread if called from an async function directly
+            # For simplicity in this userbot, we'll keep it as is, but in a true async context,
+            # you might want to use aiohttp or run requests in executor.
+            # However, Pyrogram's @on_message handlers are generally safe for blocking calls.
             res = requests.post(flask_api_url, json={
                 "image_path": removed_bg_path,
                 "template_id": template_id
@@ -67,7 +82,7 @@ async def handle_user_image(client, message):
                 logging.error(f"Flask API error: {res.status_code} - {res.json()}")
         else:
             await message.reply("Maaf kijiye, @BgRemover_ai_bot se koi response nahi mila ya photo nahi mili.")
-            logging.warning(f"No photo response from {TARGET_BOT} for user {message.from_user.id}")
+            logging.warning(f"No photo response or unexpected response from {TARGET_BOT} for user {message.from_user.id}")
 
     except asyncio.TimeoutError:
         await message.reply("Operation mein time lag gaya. Dobara try karein, please.")
@@ -77,31 +92,19 @@ async def handle_user_image(client, message):
         logging.exception(f"An unexpected error occurred for user {message.from_user.id}")
     finally:
         # Clean up temporary files
-        if os.path.exists(image_path):
-            os.remove(image_path)
-            logging.info(f"Cleaned up {image_path}")
-        if 'removed_bg_path' in locals() and os.path.exists(removed_bg_path):
-            os.remove(removed_bg_path)
-            logging.info(f"Cleaned up {removed_bg_path}")
-        if 'final_path' in locals() and os.path.exists(final_path):
-            os.remove(final_path)
-            logging.info(f"Cleaned up {final_path}")
+        temp_files_to_clean = [image_path]
+        if 'removed_bg_path' in locals():
+            temp_files_to_clean.append(removed_bg_path)
+        if 'final_path' in locals():
+            temp_files_to_clean.append(final_path)
+
+        for f_path in temp_files_to_clean:
+            if os.path.exists(f_path):
+                os.remove(f_path)
+                logging.info(f"Cleaned up {f_path}")
 
 
-def start_bot():
-    """Starts the Pyrogram bot in a separate thread."""
+def start_pyrogram_bot():
+    """Starts the Pyrogram bot. This is a blocking call."""
     logging.info("Starting Pyrogram bot...")
-    bot.run() # This is a blocking call, so run in a thread
-
-if __name__ == "__main__":
-    # Start Pyrogram bot in a separate thread
-    bot_thread = threading.Thread(target=start_bot)
-    bot_thread.daemon = True # Daemon thread will exit when main program exits
-    bot_thread.start()
-
-    logging.info("Starting Flask app...")
-    # Start Flask app using Gunicorn for production
-    # Ye command Render par chalega.
-    # Flask development server ko direct run na karein production mein.
-    # For local testing, you can use: app.run(host='0.0.0.0', port=5000)
-    # Gunicorn command will be in render.yaml or start command
+    bot.run()
