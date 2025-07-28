@@ -1,0 +1,95 @@
+services:
+  - type: web
+    name: telegram-image-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --workers 4 'bot.main:app' --bind 0.0.0.0:$PORT
+    # `bot.main:app` matlab `bot/main.py` file mein `app` variable
+    # Agar aap app/__init__.py mein `app` ko define kar rahe hain,
+    # toh `app.__init__:app` ya us hisab se path set karna padega.
+    # Abhi humne `bot.main.py` mein flask app ko directly import nahi kiya hai.
+    # Hum `bot.main` se Pyrogram client ko start kar rahe hain,
+    # aur Flask app ko `app` folder se access kar rahe hain.
+    # Sahi tareeka ye hoga ki entry point script Flask app ko run kare aur bot ko thread mein.
+
+    # Let's adjust the startCommand.
+    # The `startCommand` should run the Flask app, and the Flask app's initialization
+    # should start the Pyrogram bot in a separate thread.
+
+    # Revised startCommand for bot/main.py
+    # Since bot/main.py is where we start the Pyrogram client AND where we plan to run Flask,
+    # we need to ensure Gunicorn starts the Flask app, and the Flask app's setup triggers the bot.
+    # Assuming `app` from `app/__init__.py` is the Flask instance.
+    # Let's make a combined entry point.
+
+    # Create a new file `run.py` in the project root:
+    # run.py
+    # from app import app
+    # from bot.main import start_bot # Assuming start_bot is callable directly
+    # import threading
+    # import logging
+    #
+    # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    #
+    # if __name__ == '__main__':
+    #     logging.info("Starting Pyrogram bot in a separate thread...")
+    #     bot_thread = threading.Thread(target=start_bot)
+    #     bot_thread.daemon = True
+    #     bot_thread.start()
+    #
+    #     logging.info("Starting Flask app with Gunicorn...")
+    #     # Gunicorn command to run the Flask app
+    #     # This part will be executed by Gunicorn
+    #     # For this to work, Gunicorn needs to load `app` from `app.__init__`
+    #     # The actual Gunicorn command will be `gunicorn run:app` where `app` is the Flask instance.
+
+    # So, let's keep `bot/main.py` purely for bot logic and create a separate `app.py` or `main.py` for Flask + Bot orchestration.
+
+    # --- Reverting `bot/main.py` to only bot logic and making `run.py` as entry ---
+
+    # `bot/main.py` should NOT contain `if __name__ == "__main__":` block starting Flask.
+    # It should just define `handle_user_image` and `bot` client.
+    # The `start_bot` function should be callable from outside.
+
+    # Updated `bot/main.py` (removing `if __name__ == "__main__":` block)
+    # from pyrogram import Client, filters
+    # import asyncio
+    # import os
+    # import requests
+    # from app.utils import get_unique_filename, TEMP_DIR
+    # # from app import app # No need to import app here
+    # import logging
+
+    # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    # API_ID = int(os.getenv("API_ID"))
+    # API_HASH = os.getenv("API_HASH")
+    # SESSION_DIR = "session"
+
+    # if not os.path.exists(SESSION_DIR):
+    #     os.makedirs(SESSION_DIR)
+
+    # bot = Client("my_session", api_id=API_ID, api_hash=API_HASH, workdir=SESSION_DIR, no_updates=True)
+
+    # TARGET_BOT = "BgRemover_ai_bot"
+
+    # @bot.on_message(filters.private & filters.photo)
+    # async def handle_user_image(client, message):
+    #     # ... (rest of the handle_user_image function remains same)
+    #     pass
+
+    # def start_pyrogram_bot():
+    #     """Starts the Pyrogram bot. This is a blocking call."""
+    #     logging.info("Starting Pyrogram bot...")
+    #     bot.run()
+
+    # Now back to `render.yaml` and a new `run.py`
+
+    startCommand: gunicorn --workers 4 'run:app' --bind 0.0.0.0:$PORT
+    envVars:
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false # Render will give you this after deployment
