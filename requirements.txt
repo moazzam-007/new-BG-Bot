@@ -1,0 +1,6 @@
+flask
+pyrogram
+tgcrypto
+pillow
+requests
+python-dotenv
